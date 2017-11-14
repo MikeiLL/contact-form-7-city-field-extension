@@ -4,13 +4,13 @@
 Plugin Name: Contact Form 7 - City Field Extension
 Plugin URI: http://cfe.wp-themes.it
 Description: Provides a text input field for city search, based on Google Place Autocomplete library.  Requires Contact Form 7.
-Version: 1.1
+Version: 1.3
 Author: Pasquale Bucci
 Author URI: http://wp-themes.it/
 License: GPL2
 */
 
-/*  Copyright 2014 - 2015 Pasquale Bucci (email : paky.bucci@gmail.com)
+/*  Copyright 2014 - 2017 Pasquale Bucci (email : paky.bucci@gmail.com)
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License, version 2, as 
@@ -26,12 +26,80 @@ License: GPL2
     Foundation, Inc., 51 Franklin St, Fifth Floor, Boston, MA  02110-1301  USA
 */
 
+if ( ! defined( 'ABSPATH' ) ) { 
+    exit; // Exit if accessed directly
+}
+
+/**
+ * Option module
+ */
+add_action( 'admin_menu', 'cfe_add_admin_menu' );
+add_action( 'admin_init', 'cfe_settings_init' );
+
+function cfe_add_admin_menu() { 
+	add_menu_page( 'City Field Extension', 'City Field Extension', 'manage_options', 'city_field_extension', 'cfe_options_page' );
+}
+
+function cfe_settings_init() { 
+
+	register_setting( 'pluginPage', 'cfe_settings' );
+
+	add_settings_section(
+		'cfe_pluginPage_section', 
+		'', 
+		'', 
+		'pluginPage'
+	);
+
+	add_settings_field( 
+		'cfe_text_field_0', 
+		'Your API Key', 
+		'cfe_text_field_0_render', 
+		'pluginPage', 
+		'cfe_pluginPage_section' 
+	);
+
+}
+
+function cfe_text_field_0_render() { 
+
+	$options = get_option( 'cfe_settings' );
+	$opt1='';
+	if (isset($options['cfe_text_field_0'])) {
+		$opt1=$options['cfe_text_field_0'];
+	}
+	?>
+	<input type='text' name='cfe_settings[cfe_text_field_0]' value='<?php echo $opt1; ?>'>
+	<p><small>Insert your Google Maps API Key. <a href="https://developers.google.com/maps/documentation/javascript/get-api-key">Get your KEY!</a></small></p>
+	<?php
+
+}
+
+function cfe_options_page(  ) { 
+	?>
+	<form action='options.php' method='post'>
+		
+		<h2>City Field Extension - Settings</h2>
+		
+		<?php
+		settings_fields( 'pluginPage' );
+		do_settings_sections( 'pluginPage' );
+		submit_button();
+		?>
+		
+	</form>
+	<?php
+}
+
 /*
 * Loads Scripts
 */
 function pcfe_load_scripts() {
-	wp_enqueue_script( 'pcfe-google-places-api', '//maps.googleapis.com/maps/api/js?v=3.exp&libraries=places' );
-	wp_enqueue_script( 'pcfe-plugin-script', plugins_url( '/js/script.js', __FILE__ ));
+	$options = get_option( 'cfe_settings' );
+	$key='';
+	if (isset($options['cfe_text_field_0'])) {
+		$key=$options['cfe_text_field_0'];
+	}
 }
 add_action( 'wp_enqueue_scripts', 'pcfe_load_scripts' );
 
@@ -44,103 +112,114 @@ add_action( 'admin_enqueue_scripts', 'load_pcfe_wp_admin_style' );
 * A base module for [cityfieldtext], [cityfieldtext*]
 */
 function wpcf7_cityfieldtext_init(){
-	if(function_exists('wpcf7_add_shortcode')){
-		/* Shortcode handler */		
-		wpcf7_add_shortcode( 'cityfieldtext', 'wpcf7_cityfieldtext_shortcode_handler', true );
-		wpcf7_add_shortcode( 'cityfieldtext*', 'wpcf7_cityfieldtext_shortcode_handler', true );
+
+	add_action( 'wpcf7_init', 'wpcf7cfe_add_shortcode_cityfield' );
+	add_filter( 'wpcf7_validate_cityfield*', 'wpcf7cfe_cityfield_validation_filter', 10, 2 );
 	
-	}
-	add_filter( 'wpcf7_validate_cityfieldtext', 'wpcf7_cityfieldtext_validation_filter', 10, 2 );
-	add_filter( 'wpcf7_validate_cityfieldtext*', 'wpcf7_cityfieldtext_validation_filter', 10, 2 );
 }
 add_action( 'plugins_loaded', 'wpcf7_cityfieldtext_init' , 20 );
+
+function wpcf7cfe_add_shortcode_cityfield() {
+	wpcf7_add_form_tag(
+		array( 'cityfieldtext' , 'cityfieldtext*' ),
+		'wpcf7_cityfield_shortcode_handler', true );
+}
 
 /*
 * CityFieldText Shortcode
 */
-function wpcf7_cityfieldtext_shortcode_handler( $tag ) {
-	
-$wpcf7_contact_form = WPCF7_ContactForm::get_current();
+function wpcf7_cityfield_shortcode_handler( $tag ) {
 
-	if ( ! is_array( $tag ) )
+	wp_enqueue_script( 'pcfe-google-places-api', 'https://maps.googleapis.com/maps/api/js?key=' .$key . '&libraries=places' );
+	wp_enqueue_script( 'pcfe-plugin-script', plugins_url( '/js/script.js', __FILE__ ));
+
+	$tag = new WPCF7_FormTag( $tag );
+
+	if ( empty( $tag->name ) )
 		return '';
 
-	$type = $tag['type'];
-	$name = $tag['name'];
-	$options = (array) $tag['options'];
-	$values = (array) $tag['values'];
+	$validation_error = wpcf7_get_validation_error( $tag->name );
 
-	if ( empty( $name ) )
-		return '';
+	$class = wpcf7_form_controls_class( $tag->type, 'wpcf7cfe-cityfield' );
 
-	$atts = '';
-	$id_att = '';
-	$class_att = '';
-	$aria='';
+	if ( $validation_error ) {
+		$class .= ' wpcf7-not-valid';
+    }
 
-	$class_att .= ' wpcf7-text';
-	$id_att = 'autocomplete';
+    $atts = array();
 
-	if ( 'cityfieldtext*' == $type ) {
-		$class_att .= ' wpcf7-validates-as-required';
-		$aria="true";
+	$atts['size'] = $tag->get_size_option( '40' );
+	$atts['maxlength'] = $tag->get_maxlength_option();
+	$atts['minlength'] = $tag->get_minlength_option();
+
+	if ( $atts['maxlength'] && $atts['minlength'] && $atts['maxlength'] < $atts['minlength'] ) {
+		unset( $atts['maxlength'], $atts['minlength'] );
 	}
 
-	foreach ( $options as $option ) {
-		if ( preg_match( '%^class:([-0-9a-zA-Z_]+)$%', $option, $matches ) ) {
-			$class_att .= ' ' . $matches[1];
-		}
-	}
+	$atts['class'] = $tag->get_class_option( $class );
+	$atts['id'] = 'autocomplete';
+	$atts['tabindex'] = $tag->get_option( 'tabindex', 'int', true );
 
-	if ( $id_att )
-		$atts .= ' id="' . trim( $id_att ) . '"';
+	if ( $tag->has_option( 'readonly' ) )
+		$atts['readonly'] = 'readonly';
 
-	if ( $class_att )
-		$atts .= ' class="' . trim( $class_att ) . '"';
+	if ( $tag->is_required() )
+		$atts['aria-required'] = 'true';
 
+	$atts['aria-invalid'] = $validation_error ? 'true' : 'false';
 
-	if ( is_a( $wpcf7_contact_form, 'WPCF7_ContactForm' ) && $wpcf7_contact_form->is_posted() ) {
-		if ( isset( $_POST['_wpcf7_mail_sent'] ) && $_POST['_wpcf7_mail_sent']['ok'] )
-			$value = '';
-		else
-			$value = stripslashes_deep( $_POST[$name] );
-	} else {
-		$value = isset( $values[0] ) ? $values[0] : '';
-	}
-	
-	$scval = do_shortcode('['.$value.']');
-	if($scval != '['.$value.']') $value = $scval;
-	
-	$readonly = '';
-	if(in_array('uneditable', $options)){
-		$readonly = 'readonly="readonly"';
-	}
+	$value = (string) reset( $tag->values );
 
-	$html = '<input type="text" aria-required="' . $aria . '" name="' . $name . '" value="' . esc_attr( $value ) . '"' . $atts . ' '. $readonly.' />';
+    $atts['type'] = 'text';
+			
+	$atts['name'] = $tag->name;
 
-	$validation_error = '';
-	if ( is_a( $wpcf7_contact_form, 'WPCF7_ContactForm' ) )
-		$validation_error = $wpcf7_contact_form->validation_error( $name );
+	$atts = wpcf7_format_atts( $atts );
 
-	$html = '<span class="wpcf7-form-control-wrap ' . $name . '">' . $html . $validation_error . '</span>';
+	$html = sprintf(
+		'<span class="wpcf7-form-control-wrap %1$s"><input %2$s />%3$s</span>',
+		sanitize_html_class( $tag->name ), $atts, $validation_error );
 
 	return $html;
+
 }
 
 /*
 * CityFieldText Validation filter
 */
-function wpcf7_cityfieldtext_validation_filter( $result, $tag ) {
+function wpcf7cfe_cityfield_validation_filter( $result, $tag ) {
 
-	$wpcf7_contact_form = WPCF7_ContactForm::get_current();
+	$tag = new WPCF7_FormTag( $tag );
 
-	$type = $tag['type'];
-	$name = $tag['name'];
-	$value = isset( $_POST[$name] ) ? trim( wp_unslash( strtr( (string) $_POST[$name], "\n", " " ) ) ) : '';
+	$name = $tag->name;
 
-	if ( 'cityfieldtext*' == $type ) {
-		if ( '' == $value ) {
+	$value = isset( $_POST[$name] )
+		? trim( wp_unslash( strtr( (string) $_POST[$name], "\n", " " ) ) )
+		: '';
+
+
+	if ( 'cityfieldtext' == $tag->basetype ) {
+		if ( $tag->is_required() && '' == $value ) {
 			$result->invalidate( $tag, wpcf7_get_message( 'invalid_required' ) );
+		}
+	}
+
+	if ( ! empty( $value ) ) {
+		$maxlength = $tag->get_maxlength_option();
+		$minlength = $tag->get_minlength_option();
+
+		if ( $maxlength && $minlength && $maxlength < $minlength ) {
+			$maxlength = $minlength = null;
+		}
+
+		$code_units = wpcf7_count_code_units( $value );
+
+		if ( false !== $code_units ) {
+			if ( $maxlength && $maxlength < $code_units ) {
+				$result->invalidate( $tag, wpcf7_get_message( 'invalid_too_long' ) );
+			} elseif ( $minlength && $code_units < $minlength ) {
+				$result->invalidate( $tag, wpcf7_get_message( 'invalid_too_short' ) );
+			}
 		}
 	}
 
@@ -151,64 +230,73 @@ function wpcf7_cityfieldtext_validation_filter( $result, $tag ) {
 /*
 * CityFieldText Tag generator
 */
-add_action( 'admin_init', 'wpcf7_add_tag_generator_cityfieldtext', 45 );
-
-function wpcf7_add_tag_generator_cityfieldtext() {
-	if (class_exists('WPCF7_TagGenerator')) {
-		$tag_generator = WPCF7_TagGenerator::get_instance();
-		$tag_generator->add( 'cityfieldtext', __( 'City Text Field', 'contact-form-7' ), 'wpcf7_tg_pane_cityfieldtext' );
-	} else if (function_exists('wpcf7_add_tag_generator')) {
-		wpcf7_add_tag_generator( 'cityfieldtext', __( 'City Text Field', 'wpcf7' ),	'wpcf7_tg_pane_cityfieldtext', 'wpcf7_tg_pane_cityfieldtext' );
-	}
+if ( is_admin() ) {
+	//add_action( 'admin_init', 'wpcf7cfe_add_tag_generator_cityfield', 25 );
+	add_action( 'wpcf7_admin_init' , 'wpcf7_add_tag_generator_cityfield' , 100 );
 }
 
-function wpcf7_tg_pane_cityfieldtext($contact_form, $args = '') {
-	$args = wp_parse_args( $args, array() );
+function wpcf7_add_tag_generator_cityfield() {
+	if ( ! class_exists( 'WPCF7_TagGenerator' ) ) return;
 
-	$description = __( "Generate a form tag for an autocomplete text field that returns place predictions in the form of a dropdown pick list. For more details, see %s.", 'contact-form-7' );
-	$desc_link = wpcf7_link( __( 'https://wordpress.org/plugins/contact-form-7-city-field-extension/', 'contact-form-7' ), __( 'the plugin page on WordPress.org', 'contact-form-7' ), array('target' => '_blank' ) );
+	$tag_generator = WPCF7_TagGenerator::get_instance();
+	$tag_generator->add( 'cityfieldtext', __( 'City Field Extension', 'contact-form-7' ),
+		'wpcf7cfe_tag_generator_cityfield' );
+}
+
+function wpcf7cfe_tag_generator_cityfield( $contact_form , $args = '' ){
+	$args = wp_parse_args( $args, array() );
+	$type = $args['id'];
+
+	$description = __( "Generate a form tag for an autocomplete text field that returns place predictions in the form of a dropdown pick list.", 'contact-form-7' );
+		
+
+
 ?>
 <div class="control-box">
-	<fieldset>
-		<legend><?php printf( esc_html( $description ), $desc_link ); ?></legend>
+<fieldset>
+<legend><?php echo $description; ?></legend>
 
-		<table class="form-table">
-			<tbody>
-				<tr>
-					<th scope="row"><?php echo esc_html( __( 'Field type', 'contact-form-7' ) ); ?></th>
-					<td>
-						<fieldset>
-							<legend class="screen-reader-text"><?php echo esc_html( __( 'Field type', 'contact-form-7' ) ); ?></legend>
-							<label><input type="checkbox" name="required" /> <?php echo esc_html( __( 'Required field', 'contact-form-7' ) ); ?></label>
-						</fieldset>
-					</td>
-				</tr>
-				<tr>
-					<th scope="row"><label for="<?php echo esc_attr( $args['content'] . '-name' ); ?>"><?php echo esc_html( __( 'Name', 'contact-form-7' ) ); ?></label></th>
-					<td><input type="text" name="name" class="tg-name oneline" id="<?php echo esc_attr( $args['content'] . '-name' ); ?>" /></td>
-				</tr>
+<table class="form-table">
+<tbody>
+	<tr>
+	<th scope="row"><?php echo esc_html( __( 'Field type', 'contact-form-7' ) ); ?></th>
+	<td>
+		<fieldset>
+		<legend class="screen-reader-text"><?php echo esc_html( __( 'Field type', 'contact-form-7' ) ); ?></legend>
+		<label><input type="checkbox" name="required" /> <?php echo esc_html( __( 'Required field', 'contact-form-7' ) ); ?></label>
+		</fieldset>
+	</td>
+	</tr>
 
-				<tr>
-					<th scope="row"><label for="<?php echo esc_attr( $args['content'] . '-class' ); ?>"><?php echo esc_html( __( 'Class (optional)', 'contact-form-7' ) ); ?></label></th>
-					<td><input type="text" name="class" class="classvalue oneline option" id="<?php echo esc_attr( $args['content'] . '-class' ); ?>" /></td>
-				</tr>
-			</tbody>
-		</table>
-	</fieldset>
+	<tr>
+	<th scope="row"><label for="<?php echo esc_attr( $args['content'] . '-name' ); ?>"><?php echo esc_html( __( 'Name', 'contact-form-7' ) ); ?></label></th>
+	<td><input type="text" name="name" class="tg-name oneline" id="<?php echo esc_attr( $args['content'] . '-name' ); ?>" /></td>
+	</tr>
+
+
+	<tr>
+	<th scope="row"><label for="<?php echo esc_attr( $args['content'] . '-class' ); ?>"><?php echo esc_html( __( 'Class attribute', 'contact-form-7' ) ); ?></label></th>
+	<td><input type="text" name="class" class="classvalue oneline option" id="<?php echo esc_attr( $args['content'] . '-class' ); ?>" /></td>
+	</tr>
+
+</tbody>
+</table>
+</fieldset>
 </div>
-	<div class="insert-box">
-		<input type="text" name="cityfieldtext" class="tag code" readonly="readonly" onfocus="this.select()" />
 
-		<div class="submitbox">
-			<input type="button" class="button button-primary insert-tag" value="<?php echo esc_attr( __( 'Insert Tag', 'contact-form-7' ) ); ?>" />
-		</div>
+<div class="insert-box">
+	<input type="text" name="<?php echo $type; ?>" class="tag code" readonly="readonly" onfocus="this.select()" />
 
-		<br class="clear" />
-
-		<p class="description mail-tag"><label for="<?php echo esc_attr( $args['content'] . '-mailtag' ); ?>"><?php echo sprintf( esc_html( __( "To use the value input through this field in a mail field, you need to insert the corresponding mail-tag (%s) into the field on the Mail tab.", 'contact-form-7' ) ), '<strong><span class="mail-tag"></span></strong>' ); ?><input type="text" class="mail-tag code hidden" readonly="readonly" id="<?php echo esc_attr( $args['content'] . '-mailtag' ); ?>" /></label></p>
+	<div class="submitbox">
+	<input type="button" class="button button-primary insert-tag" value="<?php echo esc_attr( __( 'Insert Tag', 'contact-form-7' ) ); ?>" />
 	</div>
+
+	<br class="clear" />
+
+</div>
 <?php
 }
+
 
 /*
 * CityFieldText Welcome panel
@@ -237,10 +325,10 @@ function wpcf17_welcome_panel() {
 
 	<div class="welcome-panel-content">
 		<div class="welcome-panel-container">
-			<div class="welcome-panel-column">
-				<h4><?php echo esc_html( __( 'City Field Extension for Contact Form 7 Needs Your Support', 'contact-form-7' ) ); ?></h4>
-				<p class="message"><?php echo esc_html( __( "If you enjoy using City Field Extension for Contact Form 7 and find it useful, please consider making a donation.", 'contact-form-7' ) ); ?></p>
-				<p><a href="<?php echo esc_url( __( 'https://www.paypal.com/cgi-bin/webscr?cmd=_s-xclick&hosted_button_id=PKMBP2CF3M8SQ', 'contact-form-7' ) ); ?>" class="button button-paky" target="_blank"><?php echo esc_html( __( 'Donate', 'contact-form-7' ) ); ?></a></p>
+			<div class="">
+				<h4><?php echo esc_html( __( 'City Field Extension for Contact Form 7 - Want more?', 'contact-form-7' ) ); ?></h4>
+				<p class="message"><?php echo esc_html( __( "If you want more fields and/or restrict country and/or get the fields as address, cities and more, consider PREMIUM version.", 'contact-form-7' ) ); ?></p>
+				<p><a href="http://cfe.wp-themes.it/" class="button button-paky" target="_blank"><?php echo esc_html( __( 'Take a look at PREMIUM', 'contact-form-7' ) ); ?></a></p>
 			</div>
 
 		</div>
