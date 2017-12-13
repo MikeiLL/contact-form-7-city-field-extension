@@ -42,21 +42,29 @@ function cfe_add_admin_menu() {
 
 function cfe_settings_init() { 
 
-	register_setting( 'pluginPage', 'cfe_settings' );
+	register_setting( 'wpcf7DynamicTextExtension', 'cfe_settings' );
 
 	add_settings_section(
-		'cfe_pluginPage_section', 
+		'cfe_wpcf7DynamicTextExtension_section', 
 		'', 
 		'', 
-		'pluginPage'
+		'wpcf7DynamicTextExtension'
 	);
 
 	add_settings_field( 
 		'cfe_text_field_0', 
 		'Your API Key', 
 		'cfe_text_field_0_render', 
-		'pluginPage', 
-		'cfe_pluginPage_section' 
+		'wpcf7DynamicTextExtension', 
+		'cfe_wpcf7DynamicTextExtension_section' 
+	);
+	
+	add_settings_field( 
+		'cfe_checkbox_0', 
+		'Do Not Load GoogleMap Script (loaded by theme or plugin)', 
+		'cfe_checkbox_0_render', 
+		'wpcf7DynamicTextExtension', 
+		'cfe_wpcf7DynamicTextExtension_section' 
 	);
 
 }
@@ -75,6 +83,21 @@ function cfe_text_field_0_render() {
 
 }
 
+function cfe_checkbox_0_render() { 
+
+	$options = get_option( 'cfe_settings' );
+	$opt2='';
+	if (isset($options['cfe_checkbox_0'])) {
+		$opt2=$options['cfe_checkbox_0'];
+	}
+
+	?>
+	<input type="checkbox" name="cfe_settings[cfe_checkbox_0]" value="1" <?php checked( 1 == $options['cfe_checkbox_0'] ); ?> />
+
+	<?php
+
+}
+
 function cfe_options_page(  ) { 
 	?>
 	<form action='options.php' method='post'>
@@ -82,8 +105,8 @@ function cfe_options_page(  ) {
 		<h2>City Field Extension - Settings</h2>
 		
 		<?php
-		settings_fields( 'pluginPage' );
-		do_settings_sections( 'pluginPage' );
+		settings_fields( 'wpcf7DynamicTextExtension' );
+		do_settings_sections( 'wpcf7DynamicTextExtension' );
 		submit_button();
 		?>
 		
@@ -129,8 +152,13 @@ function wpcf7cfe_add_shortcode_cityfield() {
 * CityFieldText Shortcode
 */
 function wpcf7_cityfield_shortcode_handler( $tag ) {
-
-	wp_enqueue_script( 'pcfe-google-places-api', 'https://maps.googleapis.com/maps/api/js?key=' .$key . '&libraries=places' );
+	$options = get_option( 'cfe_settings' );
+	if (isset($options['cfe_checkbox_0'])) {
+		if($options['cfe_checkbox_0'] != 1){
+			wp_enqueue_script( 'pcfe-google-places-api', 'https://maps.googleapis.com/maps/api/js?key=' .$key . '&libraries=places' );
+		}
+	}
+	
 	wp_enqueue_script( 'pcfe-plugin-script', plugins_url( '/js/script.js', __FILE__ ));
 
 	$tag = new WPCF7_FormTag( $tag );
